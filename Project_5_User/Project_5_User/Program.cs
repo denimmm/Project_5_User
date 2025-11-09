@@ -23,7 +23,7 @@ app.UseHttpsRedirection();
 
 
 
-
+//GINBOT
 //verify the authentication with authentication module
 bool verifyAuth(String? auth_header)
 {
@@ -41,7 +41,7 @@ bool verifyAuth(String? auth_header)
 
 
 
-
+//Maksym
 //allows the user to request a ride and receive an offer. offer must be confirmed
 // /api/create_new_trip
 ////input: POST { "userID": "u12345", "pickup_address": "Conestoga College, Waterloo, ON", "destination_address": "Conestoga Mall, Waterloo, ON", "car_type" : "XL", "pet_friendly" : "true"}
@@ -104,12 +104,12 @@ app.MapPost("/create_new_trip", (RideRequest request, HttpContext context) =>
     };
 
     return Results.Json(rideOffer);
-
 })
 .WithName("create_new_trip")
 .WithOpenApi();
 
 
+//MEEHAK
 //confirms the ride for the user, activates payment, and dispatches a driver
 // /api/confirm_trip
 ////input: { "userID" : "u12345", "rideID" : "01242", "confirm_ride" : "true" }
@@ -154,6 +154,8 @@ app.MapPost("/confirm_trip", (HttpContext context, int userID, bool trip_confirm
 .WithName("confirm_trip")
 .WithOpenApi();
 
+
+//Denim
 //returns the location of the user's driver
 // /api/driverLocation
 ////input: driverlocation?userID=12345&rideID=12312421
@@ -190,6 +192,8 @@ app.MapGet("/driver_location", (HttpContext context, int userID) =>
 .WithName("GetDriverLocation")
 .WithOpenApi();
 
+
+//Denim or Maksym
 //finish the ride and rate the driver
 // /finishRide
 ////input: { UserID = 123324, RideID = 32492359, RideCompleted = true, Rating = 5 }
