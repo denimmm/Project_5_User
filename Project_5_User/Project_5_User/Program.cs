@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Writers;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.InteropServices;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -160,34 +161,42 @@ app.MapPost("/confirm_trip", (HttpContext context, int userID, bool trip_confirm
 // /api/driverLocation
 ////input: driverlocation?userID=12345&rideID=12312421
 ////output: {  "longitude" : "12.1243", "latitude" : "14.2323" }
-app.MapGet("/driver_location", (HttpContext context, int userID) =>
+app.MapGet("/driver_location", async (HttpContext context, int userID) =>
 {
 
     //verify the user's authentication token
     var authHeader = context.Request.Headers["Authorization"].ToString();
 
     //verifyAuth(authHeader);
-  
+
 
     //send auth token to auth module for verification. return unauthorized if invalid
 
 
-    //request driver location from the navigation or driver module
-    var navigationOutput = new
+
+    ////request driver location from the navigation or driver module
+    //make http client to access navigation endpoint
+    var client = new HttpClient();
+    int port = 2342; //placeholder
+    string driverID = "001"; //placeholder. will need to rettrieve this from the auth-data team or give it to the user in confirm_ride for the user to send back to us here.
+    string navurl = $"https://portainer.gooberapp.org:{port}/lastLocation?driverID={driverID}";
+
+    var response = await client.GetAsync(navurl);
+
+    //error handling
+    if (!response.IsSuccessStatusCode)
     {
-        latitude = 12.4112,
-        longitude = 14.2212
-    };
+        return Results.Problem("Failed to fetch driver location from navigation module");
+    }
 
+    //get the response
+    var json = await response.Content.ReadAsStringAsync();
 
-    //return driver location
-    var location = new
-    {
-        latitude = navigationOutput.latitude,
-        longitude = navigationOutput.longitude
-    };
+    //deserialize
+    var navigationOutput = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
 
-    return Results.Json(location);
+    //return the output directly as it only contains the location, no other processing is required.
+    return Results.Json(navigationOutput);
 })
 .WithName("GetDriverLocation")
 .WithOpenApi();
