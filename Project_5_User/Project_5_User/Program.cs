@@ -10,6 +10,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHttpClient();
 
 var app = builder.Build();
 
@@ -47,7 +48,7 @@ bool verifyAuth(String? auth_header)
 // /api/create_new_trip
 ////input: POST { "userID": "u12345", "pickup_address": "Conestoga College, Waterloo, ON", "destination_address": "Conestoga Mall, Waterloo, ON", "car_type" : "XL", "pet_friendly" : "true"}
 ////output: { "rideID" : "01242", "distanceKm" : "14.58", "fare" : "29.04", "durationMinutes" : "1.86", "driver_name" : "Matthew", "license_plate" : "KJVM 719", "car_model" : "Biege Chevy Malibu"}
-app.MapPost("/create_new_trip", (RideRequest request, HttpContext context) =>
+app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory httpClientFactory, HttpContext context) =>
 {
     //authenticate
     //verify the user's authentication token
@@ -55,52 +56,78 @@ app.MapPost("/create_new_trip", (RideRequest request, HttpContext context) =>
 
     //verifyAuth(authHeader);
 
+    //make http client to access navigation authentication and driver endpoints
+    var client = httpClientFactory.CreateClient();
 
-    //get ride id from auth /create_new_trip
-    int rideID = 123142;
-
-    //get estimate from /api/estimate 
-    ///input : { "pickup_addr": "Conestoga College, Waterloo, ON", "dest_addr": "Conestoga Mall, Waterloo, ON" }
-    ///output : { "distanceKm": 14.58, "fare": 29.04, "durationMinutes": 18.6}
+    //get estimate from navigation module
     var navInput = new
     {
-        pickup_addr = request.pickup_address,
-        dest_addr = request.destination_address
+        pickupAddress = request.pickup_address,
+        destinationAddress = request.destination_address
     };
 
+    //call navigation module /api/estimate
+    var navEstimateResponse = await client.PostAsJsonAsync("https://portainer.gooberapp.org:2342/api/estimate", navInput);
 
-    //placeholder info
-    var navOutput = new
+    //populate nav estimate response object
+    var navEstimateContent = await navEstimateResponse.Content.ReadFromJsonAsync<navEstimateResponse>();
+
+
+
+    //get ride id from auth /create_new_trip
+    var authRequestJson = new
     {
-        distanceKm = 14.58,
-        durationMinutes = 18.6,
-        fare = 29.04,
-        polyline = "..."
+        rider_id = request.userID,
+        pickup = new 
+            { lattitude = 0,
+              longitude = 0,
+              address = request.pickup_address
+            },
+        dropOff = new
+        {
+            latitude = 0,
+            longitude = 0,
+            address = request.destination_address
+        },
+        car_type = request.car_type,
+        pet_friendly = request.pet_friendly,
+        estimate = new
+        {
+            distance_km =navEstimateContent.distanceKM,
+            fare_estimate = navEstimateContent.fare,
+            duration_min = navEstimateContent.durationMinutes
+        }
+
     };
 
+    //call auth module to create new trip
+    var authResponse = await client.PostAsJsonAsync("https://portainer.gooberapp.org:3456/api/authentication/create_new_trip", authRequestJson);
 
-    //check for an available driver
-    //POST /api.driver.com/api/DriverManager/RequestDriver?ride_id=2352
-
-
-    var driverOutput = new
+    //Populate auth content object
+    var authContent = await authResponse.Content.ReadFromJsonAsync<authResponse>();
+    
+    var DriverRequestJson = new
     {
-        driver_name = "John",
-        license_plate = "KJVM 719",
-        car_model = "Biege Chevy Malibu"
+        ride_id = authContent.ride_id
     };
+
+    //call driver module to get assigned driver
+    var driverResponse = await client.PostAsJsonAsync("https://portainer.gooberapp.org:4567/api/driver/assign_driver", DriverRequestJson);
+
+    //get driver content
+    var driverContent = await driverResponse.Content.ReadFromJsonAsync<driverResponse>();
 
     //return ride offer for confirmation
 
     var rideOffer = new
     {
-        rideID = rideID,
-        distanceKm = navOutput.distanceKm,
-        fare = navOutput.fare,
-        durationMinutes = navOutput.durationMinutes,
-        driver_name = driverOutput.driver_name,
-        license_plate = driverOutput.license_plate,
-        car_model = driverOutput.car_model,
+        rideID = authContent.ride_id,
+        distanceKm = navEstimateContent.distanceKM,
+        fare = navEstimateContent.fare,
+        durationMinutes = navEstimateContent.durationMinutes,
+        driver_name = driverContent.driver_name,
+        license_plate = driverContent.license_plate,
+        car_model = driverContent.car_model,
 
     };
 
@@ -245,4 +272,45 @@ public record finishRide(
     bool rideCompleted,
     int rating
 );
+public record authResponse(
+  int ride_id,
+  string status
+);
+public record navEstimateResponse(
+    double distanceKM,
+    double fare,
+    double durationMinutes,
+    string polyline
+);
+public record driverResponse(
+    string driver_name,
+    string license_plate,
+    string car_model
+);
+
+//May be needed later
+//public record driverResponse(
+//   int ride_id,
+//   int clientId,
+//   string timestamp,
+//   Location pickup,
+//   Location dropOff,
+//   routeInformation routeInformation,
+//   rideInformation rideInformation
+//);
+
+//public record Location(
+//    double latitude,
+//    double longitude,
+//    string address
+//);
+
+//public record routeInformation(
+//double distanceKM,
+//double duration
+//);
+//public record rideInformation(
+//string carType,
+//bool petFriendly
+//);
 
