@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Writers;
+using System.Net.Http.Headers;
 using System.Reflection.Metadata.Ecma335;
 using System.Runtime.InteropServices;
 
@@ -11,7 +12,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
-
+//add service for auth
+builder.Services.AddHttpClient("Authentication", client =>
+{
+    client.BaseAddress = new Uri("https://api.auth/manager");
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+});
+builder.Services.AddScoped<AuthService>();
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -27,6 +34,7 @@ app.UseHttpsRedirection();
 
 //GINBOT
 //verify the authentication with authentication module
+
 bool verifyAuth(String? auth_header)
 {
     //make sure string is not empty
@@ -299,6 +307,56 @@ public record driverResponse(
     string license_plate,
     string car_model
 );
+//verify user 
+public record UserInfo
+{
+    public string account_id;
+    public string username;
+    public string email;
+    public string role;
+}
+public class AuthService
+{
+    private readonly HttpClient _httpClient;
+    public AuthService(IHttpClientFactory httpClientFactory)
+    {
+        _httpClient = httpClientFactory.CreateClient("Authorization");
+
+    }
+    public async Task<bool> verifyAuth(string token)
+    {
+        if (token == null) return false;
+
+        var request = new HttpRequestMessage(HttpMethod.Get, "me");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+
+
+        try
+        {
+            var response = await _httpClient.SendAsync(request);
+
+            if (response.IsSuccessStatusCode)
+                return true;
+
+            else
+                return false;
+
+            //if user has to be verified 
+            //var content = await response.Content.ReadAsStringAsync();
+
+            //var user = JsonSerializer.Deserialize<UserInfo>(content);
+            //if (user == null) return false;
+            //else
+            //    return true;
+        }
+        catch (Exception ex)
+        {
+            return false;
+        }
+    }
+
+}
 
 //May be needed later
 //public record driverResponse(
