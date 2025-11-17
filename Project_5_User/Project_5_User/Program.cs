@@ -35,7 +35,7 @@ app.UseHttpsRedirection();
 //GINBOT
 //verify the authentication with authentication module
 
-bool verifyAuth(String? auth_header)
+bool verifyAuth(String? auth_header, IHttpClientFactory httpClientFactory)
 {
     //make sure string is not empty
     if (string.IsNullOrEmpty(auth_header))
@@ -43,9 +43,23 @@ bool verifyAuth(String? auth_header)
 
 
     //send to authentication module for verification
-
-
-    return true;
+    var client = httpClientFactory.CreateClient();
+    var request = new HttpRequestMessage(HttpMethod.Get, "https://api.auth/manager/me");
+    //add token to authentication header
+    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", auth_header);
+    try
+    {
+        //send request
+        var response = client.Send(request);
+        if (response.IsSuccessStatusCode)
+            return true;
+        else
+            return false;
+    }
+    catch
+    {
+        return false;
+    }
 
 }
 
@@ -56,14 +70,16 @@ bool verifyAuth(String? auth_header)
 // /api/create_new_trip
 ////input: POST { "userID": "u12345", "pickup_address": "Conestoga College, Waterloo, ON", "destination_address": "Conestoga Mall, Waterloo, ON", "car_type" : "XL", "pet_friendly" : "true"}
 ////output: { "rideID" : "01242", "distanceKm" : "14.58", "fare" : "29.04", "durationMinutes" : "1.86", "driver_name" : "Matthew", "license_plate" : "KJVM 719", "car_model" : "Biege Chevy Malibu"}
-app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory httpClientFactory, HttpContext context) =>
+app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory httpClientFactory, HttpContext context, AuthService authService) =>
 {
     //authenticate
     //verify the user's authentication token
     var authHeader = context.Request.Headers["Authorization"].ToString();
-
-    //verifyAuth(authHeader);
-
+    //verify user with authservice
+    if (!(await authService.verifyAuth(authHeader)))
+        return Results.BadRequest();
+    //verify with function
+    verifyAuth(authHeader, httpClientFactory);
     //make http client to access navigation authentication and driver endpoints
     var client = httpClientFactory.CreateClient();
 
@@ -315,27 +331,33 @@ public record UserInfo
     public string email;
     public string role;
 }
+
+//responsible for verifyin user authentication 
 public class AuthService
 {
     private readonly HttpClient _httpClient;
+    //constructor
     public AuthService(IHttpClientFactory httpClientFactory)
     {
         _httpClient = httpClientFactory.CreateClient("Authorization");
 
     }
+    //method to verify user token by calling auth-data module
     public async Task<bool> verifyAuth(string token)
     {
         if (token == null) return false;
-
+        //buil Http request 
         var request = new HttpRequestMessage(HttpMethod.Get, "me");
+        //dds token on authentication header
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
 
 
         try
         {
+            //sends request 
             var response = await _httpClient.SendAsync(request);
-
+            //if return is success code e.g 200
             if (response.IsSuccessStatusCode)
                 return true;
 
