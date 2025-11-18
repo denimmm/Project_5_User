@@ -75,7 +75,7 @@ app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory h
     };
 
     //call navigation module /api/estimate
-    var navEstimateResponse = await client.PostAsJsonAsync("https://portainer.gooberapp.org:2342/api/estimate", navInput);
+    var navEstimateResponse = await client.PostAsJsonAsync("https://localhost:7126/api/estimate", navInput);
 
     //populate nav estimate response object
     var navEstimateContent = await navEstimateResponse.Content.ReadFromJsonAsync<navEstimateResponse>();
@@ -109,7 +109,7 @@ app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory h
     };
 
     //call auth module to create new trip
-    var authResponse = await client.PostAsJsonAsync("https://portainer.gooberapp.org:3456/api/authentication/create_new_trip", authRequestJson);
+    var authResponse = await client.PostAsJsonAsync("https://localhost:7126/api/authentication/create_new_trip", authRequestJson);
 
     //Populate auth content object
     var authContent = await authResponse.Content.ReadFromJsonAsync<authResponse>();
@@ -120,7 +120,7 @@ app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory h
     };
 
     //call driver module to get assigned driver
-    var driverResponse = await client.PostAsJsonAsync("https://portainer.gooberapp.org:4567/api/driver/assign_driver", DriverRequestJson);
+    var driverResponse = await client.PostAsJsonAsync("https://localhost:7126/api/driver/assign_driver", DriverRequestJson);
 
     //get driver content
     var driverContent = await driverResponse.Content.ReadFromJsonAsync<driverResponse>();
