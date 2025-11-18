@@ -64,10 +64,10 @@ app.MapGet("/me", (HttpContext context) =>
 {
     Console.WriteLine("Mock /me was called.");
     // Check if the auth header is present
-    if (!context.Request.Headers.ContainsKey("Authorization"))
-    {
-        return Results.Unauthorized();
-    }
+    //if (!context.Request.Headers.ContainsKey("Authorization"))
+    //{
+    //    return Results.Unauthorized();
+    //}
 
     var mockUser = new
     {

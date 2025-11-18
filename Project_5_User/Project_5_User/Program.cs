@@ -44,7 +44,7 @@ bool verifyAuth(String? auth_header, IHttpClientFactory httpClientFactory)
 
     //send to authentication module for verification
     var client = httpClientFactory.CreateClient();
-    var request = new HttpRequestMessage(HttpMethod.Get, "https://api.auth/manager/me");
+    var request = new HttpRequestMessage(HttpMethod.Get, "https://localhost:7126/me");
     //add token to authentication header
     request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", auth_header);
     try
@@ -75,11 +75,13 @@ app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory h
     //authenticate
     //verify the user's authentication token
     var authHeader = context.Request.Headers["Authorization"].ToString();
+    authHeader = "djdjdjjjdj";
     //verify user with authservice
-    if (!(await authService.verifyAuth(authHeader)))
-        return Results.BadRequest();
+    //if (!(await authService.verifyAuth(authHeader)))
+    //    return Results.BadRequest();
     //verify with function
-    verifyAuth(authHeader, httpClientFactory);
+    if (!verifyAuth(authHeader, httpClientFactory))
+        return Results.BadRequest();
     //make http client to access navigation authentication and driver endpoints
     var client = httpClientFactory.CreateClient();
 
