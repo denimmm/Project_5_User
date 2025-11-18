@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Writers;
+using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection.Metadata.Ecma335;
 using System.Runtime.InteropServices;
@@ -174,7 +175,7 @@ app.MapPost("/confirm_trip", async (HttpContext context,int userID, bool trip_co
     //authenticate
     var authHeader = context.Request.Headers["Authorization"].ToString();
     //verifyAuth(authHeader);
-
+    
     //cancel the ride
     if (!trip_confirmed)
     {
@@ -197,7 +198,7 @@ app.MapPost("/confirm_trip", async (HttpContext context,int userID, bool trip_co
     };
     using var httpClient = new HttpClient();
     //call payment module endpoint 
-    var paymentResponse = await httpClient.PostAsJsonAsync("https://portainer.gooberapp.org:3456/api/payments", paymentRequest);
+    var paymentResponse = await httpClient.PostAsJsonAsync("https://localhost:7126/api/payments", paymentRequest);
     //if payement is successful share driver details
     if (paymentResponse.IsSuccessStatusCode)
     {
@@ -242,9 +243,9 @@ app.MapGet("/driver_location", async (HttpContext context, int userID) =>
     ////request driver location from the navigation or driver module
     //make http client to access navigation endpoint
     var client = new HttpClient();
-    int port = 2342; //placeholder
+    int port = 7126; //placeholder
     string driverID = "001"; //placeholder. will need to rettrieve this from the auth-data team or give it to the user in confirm_ride for the user to send back to us here.
-    string navurl = $"https://portainer.gooberapp.org:{port}/lastLocation?driverID={driverID}";
+    string navurl = $"https://localhost:{port}/lastLocation?driverID={driverID}";
 
     var response = await client.GetAsync(navurl);
 
@@ -272,21 +273,31 @@ app.MapGet("/driver_location", async (HttpContext context, int userID) =>
 // /finishRide
 ////input: { UserID = 123324, RideID = 32492359, RideCompleted = true, Rating = 5 }
 ////output: 202 accepted
-app.MapPost("/finish_ride", (finishRide request, HttpContext context) =>
+app.MapPost("/finish_ride", async (finishRide request, IHttpClientFactory httpClientFactory, HttpContext context) =>
 {
     //authenticate
     //verify the user's authentication token
     var authHeader = context.Request.Headers["Authorization"].ToString();
-
+    var client = httpClientFactory.CreateClient();
     //verifyAuth(authHeader);
 
     //make sure rating is between 1 - 5
     if (request.rating < 1 || request.rating > 5)
-        return Results.BadRequest(new {error = "rating must be between 1 and 5"});
+        return Results.BadRequest(new { error = "rating must be between 1 and 5" });
 
-
+    var finish_ride_payload = new
+    {
+        rideId = request.rideID,
+        driverId = 123,
+        current_location = new 
+        { 
+        latitude = 60.123,
+        longtitude = -70.123,
+        address = "108 University Ave E, Waterloo"
+        }
+    };
     //update table for end time and driver rating (likely sending rating to the driver module)
-
+    var driverResponse = await client.PostAsJsonAsync("https://localhost:7126/api/DriverManager/DriverComplete", finish_ride_payload);
 
     //return 202 ok
     return Results.Accepted();
