@@ -18,7 +18,7 @@ Console.WriteLine("Note: You may need to trust the .NET development certificate 
 
 // --- MOCK ENDPOINTS ---
 
-// 1. Mock for Navigation Module: /api/estimate
+// 1. Mock for Navigation Module (for create_new_trip)
 app.MapPost("/api/estimate", ([FromBody] object payload) =>
 {
     Console.WriteLine("Mock /api/estimate was called.");
@@ -49,16 +49,15 @@ app.MapPost("/api/authentication/create_new_trip", ([FromBody] object payload) =
 })
 .WithName("MockAuthCreateTrip");
 
-// 3. Mock for Driver Module (for create_new_trip)
+// 3. UPDATED Mock for Driver Module (for create_new_trip)
+// Your code updated driverResponse to only contain driver_id
 app.MapPost("/api/driver/assign_driver", ([FromBody] object payload) =>
 {
     Console.WriteLine("Mock /api/driver/assign_driver was called.");
     Console.WriteLine($"Payload: {System.Text.Json.JsonSerializer.Serialize(payload)}");
     var mockDriverResponse = new
     {
-        driver_name = "Mock Matthew",
-        license_plate = "MOCK 123",
-        car_model = "Mock Biege Chevy Malibu"
+        driver_id = 999 // Updated to return only ID as per your new record definition
     };
     return Results.Ok(mockDriverResponse);
 })
@@ -70,7 +69,8 @@ app.MapGet("/me", (HttpContext context) =>
     Console.WriteLine("Mock /me was called.");
     if (!context.Request.Headers.ContainsKey("Authorization"))
     {
-        return Results.Unauthorized();
+        // Optional: Relax this check for testing if needed, or provide a default token in your client
+        // return Results.Unauthorized(); 
     }
 
     var mockUser = new
@@ -84,39 +84,26 @@ app.MapGet("/me", (HttpContext context) =>
 })
 .WithName("MockAuthMe");
 
-// 5. NEW MOCK for Payment Module (for confirm_trip)
-// Your main API calls: 
-// ...PostAsJsonAsync("https://portainer.gooberapp.org:3456/api/payments", paymentRequest);
-app.MapPost("/api/payments", ([FromBody] object paymentRequest) => // We can just accept an 'object' to be simple
+// 5. Mock for Payment Module (for confirm_trip)
+app.MapPost("/api/payments", ([FromBody] object paymentRequest) =>
 {
     Console.WriteLine($"Mock /api/payments was called.");
-    // Log the request payload to see if it's correct
     Console.WriteLine($"Payment Request Payload: {System.Text.Json.JsonSerializer.Serialize(paymentRequest)}");
 
-    // Your code checks for IsSuccessStatusCode and 402.
-    // Let's simulate a success case.
     return Results.Ok(new
     {
         transaction_id = $"mock_txn_{Guid.NewGuid()}",
         status = "successful"
     });
-
-    // To test your 402 error path, you could comment the line above
-    // and uncomment this one:
-    // Console.WriteLine("Simulating payment failure (402).");
-    // return Results.StatusCode(402); 
 })
 .WithName("MockPayment");
 
 
-// 6. NEW MOCK for Navigation/Driver Module (for driver_location)
-// Your main API calls: 
-// ...client.GetAsync($"https://portainer.gooberapp.org:{port}/lastLocation?driverID={driverID}");
+// 6. Mock for Navigation/Driver Module (for driver_location)
 app.MapGet("/lastLocation", (string driverID) =>
 {
     Console.WriteLine($"Mock /lastLocation was called for driverID: {driverID}");
 
-    // Return the exact JSON structure your main API expects
     var mockLocation = new
     {
         longitude = "12.1243",
@@ -127,20 +114,48 @@ app.MapGet("/lastLocation", (string driverID) =>
 })
 .WithName("MockDriverLocation");
 
-// 7. NEW MOCK for Driver Manager (for finish_ride)
-// Your main API calls: 
-// ...client.PostAsJsonAsync("https://localhost:7126/api/DriverManager/DriverComplete", finish_ride_payload);
+// 7. Mock for Driver Manager (for finish_ride)
 app.MapPost("/api/DriverManager/DriverComplete", ([FromBody] object finishRidePayload) =>
 {
     Console.WriteLine($"Mock /api/DriverManager/DriverComplete was called.");
-    // Log the payload to make sure it's what you expect
     Console.WriteLine($"Finish Ride Payload: {System.Text.Json.JsonSerializer.Serialize(finishRidePayload)}");
 
-    // Your /finish_ride endpoint just expects a 202 Accepted, 
-    // so we just need to return a successful status.
-    // We can return 200 OK or 204 NoContent, both will count as 'IsSuccessStatusCode'
     return Results.Ok(new { status = "ride_completed", driver_rating_received = true });
 })
 .WithName("MockDriverComplete");
+
+// 8. NEW MOCK: Geocoding (for create_new_trip)
+app.MapGet("/api/geocode", (string query) =>
+{
+    Console.WriteLine($"Mock /api/geocode was called for query: {query}");
+
+    // Return dummy coordinates
+    // Matches your 'Location' record: public double latitude; public double longitude;
+    var mockLocation = new
+    {
+        latitude = 43.4643,
+        longitude = -80.5204
+    };
+    return Results.Ok(mockLocation);
+})
+.WithName("MockGeocode");
+
+// 9. NEW MOCK: Get Driver Info (for create_new_trip)
+app.MapPost("/api/authentication/get_driver_info", ([FromBody] object payload) =>
+{
+    Console.WriteLine("Mock /api/authentication/get_driver_info was called.");
+    Console.WriteLine($"Payload: {System.Text.Json.JsonSerializer.Serialize(payload)}");
+
+    // Matches your 'DriverInfo' record
+    var mockDriverInfo = new
+    {
+        driver_id = 999,
+        driver_name = "David James",
+        license_plate = "LICE NSEPLATE",
+        car_model = "Honda CRV"
+    };
+    return Results.Ok(mockDriverInfo);
+})
+.WithName("MockGetDriverInfo");
 
 app.Run();

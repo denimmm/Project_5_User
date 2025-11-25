@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection.Metadata.Ecma335;
 using System.Runtime.InteropServices;
+using static System.Net.WebRequestMethods;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -99,31 +100,42 @@ app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory h
     //populate nav estimate response object
     var navEstimateContent = await navEstimateResponse.Content.ReadFromJsonAsync<navEstimateResponse>();
 
+    //Get geocodes of starting and ending location
+    string starting_location_geocode_link = "https://localhost:7126/api/geocode?query=" + Uri.EscapeDataString(request.pickup_address);
+
+    var pickup_location_geocode = await client.GetAsync(starting_location_geocode_link);
+
+    var pickup_location_geocode_content = await pickup_location_geocode.Content.ReadFromJsonAsync<Location>();
+
+    //Get geocode of ending location
+    string destination_location_geocode_link = "https://localhost:7126/api/geocode?query=" + Uri.EscapeDataString(request.destination_address);
+
+    var destination_location_geocode = await client.GetAsync(destination_location_geocode_link);
+
+    var destination_location_geocode_content = await destination_location_geocode.Content.ReadFromJsonAsync<Location>();
 
 
     //get ride id from auth /create_new_trip
     var authRequestJson = new
     {
         rider_id = request.userID,
-        pickup = new 
-            { lattitude = 0,
-              longitude = 0,
-              address = request.pickup_address
-            },
-        dropOff = new
-        {
-            latitude = 0,
-            longitude = 0,
-            address = request.destination_address
-        },
-        car_type = request.car_type,
-        pet_friendly = request.pet_friendly,
-        estimate = new
-        {
-            distance_km =navEstimateContent.distanceKM,
-            fare_estimate = navEstimateContent.fare,
-            duration_min = navEstimateContent.durationMinutes
-        }
+
+        start_lattitude = pickup_location_geocode_content.latitude,
+        start_longitude = pickup_location_geocode_content.longitude,
+        start_location = request.pickup_address,
+          
+        
+       end_latitude = destination_location_geocode_content.latitude,
+       end_longitude = destination_location_geocode_content.longitude,
+       end_location = request.destination_address,
+        
+       carType = request.car_type,
+       petFriendly = request.pet_friendly,
+        
+       //distance_km =navEstimateContent.distanceKM,
+       fare = navEstimateContent.fare,
+       //duration_min = navEstimateContent.durationMinutes
+       time_started = DateTime.UtcNow.ToString("O")
 
     };
 
@@ -144,17 +156,27 @@ app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory h
     //get driver content
     var driverContent = await driverResponse.Content.ReadFromJsonAsync<driverResponse>();
 
-    //return ride offer for confirmation
 
+    //Get driver data from the database based on returned driver ID
+    var driverDataRequest = new
+    {
+        driver_id = driverContent.driver_id
+    };
+
+    var driverDataResponse = await client.PostAsJsonAsync("https://localhost:7126/api/authentication/get_driver_info", driverDataRequest);
+
+    var driverDataContent = await driverDataResponse.Content.ReadFromJsonAsync<DriverInfo>();
+
+    //return ride offer for confirmation
     var rideOffer = new
     {
         rideID = authContent.ride_id,
         distanceKm = navEstimateContent.distanceKM,
         fare = navEstimateContent.fare,
         durationMinutes = navEstimateContent.durationMinutes,
-        driver_name = driverContent.driver_name,
-        license_plate = driverContent.license_plate,
-        car_model = driverContent.car_model,
+        driver_name = "David James", //driverDataContent.driver_name,
+        license_plate = "LICE NSEPLATE",//driverDataContent.license_plate,
+        car_model = "Honda CRV" //driverdataContent.car_model,
 
     };
 
@@ -332,9 +354,7 @@ public record navEstimateResponse(
     string polyline
 );
 public record driverResponse(
-    string driver_name,
-    string license_plate,
-    string car_model
+    int driver_id
 );
 //verify user 
 public record UserInfo
@@ -343,6 +363,20 @@ public record UserInfo
     public string username;
     public string email;
     public string role;
+}
+
+public record Location
+{
+    public double latitude;
+    public double longitude;
+}
+
+public record DriverInfo
+{
+    public int driver_id;
+    public string driver_name;
+    public string license_plate;
+    public string car_model;
 }
 
 //responsible for verifyin user authentication 
