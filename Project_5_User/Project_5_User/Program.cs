@@ -147,7 +147,7 @@ app.MapPost("/create_new_trip", async (
 
     //return the result to swagger.
 
-    return Results.Ok(newTripRecord);    //call navigation module /api/estimate
+    return Results.Ok(newTripRecord);/////////////////////////  TEMPORARILY RETURNS EARLY SO WE CAN SEE THE DATABASE'S RESPONSE
 
 
 
