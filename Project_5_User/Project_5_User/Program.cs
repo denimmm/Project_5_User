@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
@@ -9,6 +11,10 @@ using System.Runtime.InteropServices;
 using static System.Net.WebRequestMethods;
 
 var builder = WebApplication.CreateBuilder(args);
+
+const string supabase_api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZscGptY2VxeWthbGZ3a3R5c2dpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxMDEwMTMsImV4cCI6MjA3NDY3NzAxM30.X1rlQZeSvbrO0KE1LZdsrLvNS8YlpTborYoXG4JGsWI";
+
+const string database = "https://flpjmceqykalfwktysgi.supabase.co/rest/v1/Trip";
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -73,20 +79,31 @@ bool verifyAuth(String? auth_header, IHttpClientFactory httpClientFactory)
 // /api/create_new_trip
 ////input: POST { "userID": "u12345", "pickup_address": "Conestoga College, Waterloo, ON", "destination_address": "Conestoga Mall, Waterloo, ON", "car_type" : "XL", "pet_friendly" : "true"}
 ////output: { "rideID" : "01242", "distanceKm" : "14.58", "fare" : "29.04", "durationMinutes" : "1.86", "driver_name" : "Matthew", "license_plate" : "KJVM 719", "car_model" : "Biege Chevy Malibu"}
-app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory httpClientFactory, HttpContext context, AuthService authService) =>
+app.MapPost("/create_new_trip", async (
+    RideRequest request,
+    [FromServices] IHttpClientFactory httpClientFactory,
+    HttpContext context,
+    [FromServices] AuthService authService
+    ) =>
 {
     //authenticate
     //verify the user's authentication token
     var authHeader = context.Request.Headers["Authorization"].ToString();
-    authHeader = "djdjdjjjdj";
-    //verify user with authservice
+
+
+    //verify user with authservice                              // can probably delete this idk
     //if (!(await authService.verifyAuth(authHeader)))
     //    return Results.BadRequest();
     //verify with function
-    if (!verifyAuth(authHeader, httpClientFactory))
-        return Results.BadRequest();
+   
+    //verify authentication before continuing
+   /* if (!verifyAuth(authHeader, httpClientFactory))           //temporarily commented out our authentication bc it is not functional rn
+        return Results.BadRequest("authentication failed");
+   */
+
     //make http client to access navigation authentication and driver endpoints
     var client = httpClientFactory.CreateClient();
+
 
     //get estimate from navigation module
     var navInput = new
@@ -95,7 +112,45 @@ app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory h
         destinationAddress = request.destination_address
     };
 
-    //call navigation module /api/estimate
+    var tripInsertQuery = new
+    {
+        rider_id = request.userID,
+        start_location = request.pickup_address,
+        end_location = request.destination_address,
+        //status -- commented for now until i know what goes here
+        time_started = DateTime.UtcNow.ToString("O"),
+        petFriendly = request.pet_friendly,
+        carType = request.car_type,
+    };
+
+    //create a request for the database, give it the json in the tripInsetQuery. note: does not send the request yet
+    var tripCreateRequest = new HttpRequestMessage(HttpMethod.Post, database)
+    {
+        Content = JsonContent.Create(tripInsertQuery)
+    };
+
+    //set headers for database api request
+    tripCreateRequest.Headers.Add("apikey", supabase_api_key);                   //these supabase_api_keys will have to be switched to the
+    tripCreateRequest.Headers.Add("Authorization", $"Bearer {supabase_api_key}");//user's authentication token in the future?? according to database team
+    tripCreateRequest.Headers.Add("Prefer", "return=representation"); //return inserted row
+
+    //send the request we just made to the server
+    var createTripResponse = await client.SendAsync(tripCreateRequest);
+
+    //put the json into a record
+    var createRecordResult = await createTripResponse.Content
+    .ReadFromJsonAsync<TripRecord[]>();
+
+    //get the first row (should only return 1 row anyways)
+    //use this wherever you need to access the trip record
+    var newTripRecord = createRecordResult?[0];
+
+    //return the result to swagger.
+
+    return Results.Ok(newTripRecord);/////////////////////////  TEMPORARILY RETURNS EARLY SO WE CAN SEE THE DATABASE'S RESPONSE
+
+
+
     var navEstimateResponse = await client.PostAsJsonAsync("https://localhost:7126/api/estimate", navInput);
 
     //populate nav estimate response object
@@ -115,7 +170,7 @@ app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory h
 
     var destination_location_geocode_content = await destination_location_geocode.Content.ReadFromJsonAsync<Location>();
 
-
+    /*////////////////////////////////this block can be deleted if you need nothing from it, ride is created before we talk to navigation.
     //get ride id from auth /create_new_trip
     var authRequestJson = new
     {
@@ -140,15 +195,19 @@ app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory h
 
     };
 
+
+
     //call auth module to create new trip
     var authResponse = await client.PostAsJsonAsync("https://localhost:7126/api/authentication/create_new_trip", authRequestJson);
 
     //Populate auth content object
     var authContent = await authResponse.Content.ReadFromJsonAsync<authResponse>();
     
+    */
+
     var DriverRequestJson = new
     {
-        ride_id = authContent.ride_id
+        ride_id = newTripRecord.id //this is correct as of 2025-11-25
     };
 
     //call driver module to get assigned driver
@@ -171,7 +230,7 @@ app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory h
     //return ride offer for confirmation
     var rideOffer = new
     {
-        rideID = authContent.ride_id,
+        rideID = newTripRecord.id,
         distanceKm = navEstimateContent.distanceKM,
         fare = navEstimateContent.fare,
         durationMinutes = navEstimateContent.durationMinutes,
@@ -357,6 +416,28 @@ app.MapPost("/finish_ride", async (finishRide request, IHttpClientFactory httpCl
 
 app.Run();
 
+
+
+//used to access json when requesting the record in the database for the trip
+public record TripRecord(
+
+    int id,
+    int driver_id,
+    int rider_id,
+    string start_location,
+    string end_location,
+    string start_latitude,
+    string start_longitude,
+    string time_started,
+    string time_completd,
+    string status,
+    bool petFreindly,
+    string carType,
+    double latitude,
+    double longitude,
+    double fare
+);
+
 public record RideRequest(
     int userID,
     string pickup_address,
@@ -454,6 +535,8 @@ public class AuthService
     }
 
 }
+
+
 
 //May be needed later
 //public record driverResponse(
