@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Writers;
@@ -170,53 +171,32 @@ app.MapPost("/create_new_trip", async (RideRequest request, IHttpClientFactory h
 ////input: { "userID" : "u12345", "rideID" : "01242", "confirm_ride" : "true" }
 ////output: { "rideID" : "12345", "driver_name" : "John", "ETA" : "17:40", "payment_successful" : "true" }
 
-app.MapPost("/confirm_trip", async (HttpContext context,int userID, bool trip_confirmed) =>
+app.MapPost("/confirm_trip", async (HttpContext context, string tripID) =>
 {
     //authenticate
     var authHeader = context.Request.Headers["Authorization"].ToString();
     //verifyAuth(authHeader);
-    
-    //cancel the ride
-    if (!trip_confirmed)
-    {
-        return Results.Ok(new
-        {
-            message = "Your ride has been cancelled",
-            userID = userID
-        });
-    }
-    //confirm trip >> payment gets activated
+
+    //Request body for Payments service
     var paymentRequest = new
     {
-        tripID = "0001",
-        userID = userID.ToString(),
-        driverID = "0003",
-        cost = 24.75,
-        pickupLocation = new { latitude = 43.4516, longitude = -80.4925 },
-        destinationLocation = new { latitude = 43.4643, longitude = -80.5204 },
-        pickupTime = DateTime.UtcNow.ToString("o")
+        tripID = tripID
     };
     using var httpClient = new HttpClient();
-    //call payment module endpoint 
+    //Send tripID to the Payments service 
     var paymentResponse = await httpClient.PostAsJsonAsync("https://localhost:7126/api/payments", paymentRequest);
-    //if payement is successful share driver details
+    //check payments response status
     if (paymentResponse.IsSuccessStatusCode)
     {
-        return Results.Accepted($"/confirm_trip?userID={userID}", new
+        //forward the success code back to UX/UI team
+        return Results.Ok(new
         {
-            rideID = paymentRequest.tripID,
-            driver_name = "John Doe",
-            ETA = "17:40",
-            payment_successful = true
+            tripID = tripID,
+            status = "Payment confirmed"
         });
     }
-    //handle payment failure
-    else if ((int)paymentResponse.StatusCode == 402)
-    {
-        return Results.Problem("Payment could not be processed.", statusCode: 402);
-    }
-    //handle any other payment error 
-    return Results.Problem("Unexpected payment response.");
+    //if payment gets failed 
+    return Results.Problem("An error occured while processing payment.", statusCode: (int)paymentResponse.StatusCode);
 })
 .WithName("confirm_trip")
 .WithOpenApi();
