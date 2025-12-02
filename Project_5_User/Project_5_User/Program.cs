@@ -385,50 +385,67 @@ app.MapPost("/finish_ride", async (finishRide request, IHttpClientFactory httpCl
         return Results.BadRequest(new { error = "rating must be between 1 and 5" });
 
 
-    //update table for end time and driver rating (likely sending rating to the driver module)
     var client = httpClientFactory.CreateClient();
-    var httpRequest = new HttpRequestMessage(HttpMethod.Get, $"https://flpjmceqykalfwktysgi.supabase.co/rest/v1/Trip?select=driver_id&id=eq.{request.rideID}");
-    httpRequest.Headers.Add("apikey", supabase_api_key);
-    httpRequest.Headers.Add("Authorization", supabase_api_key);
 
 
-
-    //return the result to swagger.
-    //return the result to swagger.
-
-    var response = await client.SendAsync(httpRequest);
-    if (!response.IsSuccessStatusCode)
-
-        return Results.BadRequest();
-    //var createRecordResult = await response.Content
-    //    .ReadFromJsonAsync<TripRecord[]>();
-
-    //    //get the first row (should only return 1 row anyways)
-    //    //use this wherever you need to access the trip record
-    //    var newTripRecord = createRecordResult?[0];
-    //    ////if success 
-    var driverList = await response.Content.ReadFromJsonAsync<DriverResponse[]>();
-    var driverId = driverList?[0];
-    //return Results.Ok(driverId);
-    var driverRequest = new
+    var tripInsertQuery = new
     {
-        driverId = driverId?.driver_id,
-
+        time_completed = DateTime.UtcNow.ToString("O")
     };
 
-    //var driverResponse = await client.PostAsJsonAsync("https://api.client.com/api/DriverManager/DriverComplete", driverRequest);
+    //create a request for the database, give it the json in the tripInsetQuery. note: does not send the request yet
+    var updateRequest = new HttpRequestMessage(HttpMethod.Patch, $"{database}?id=eq.{request.rideID}")
+    {
+        Content = JsonContent.Create(tripInsertQuery)
+    };
 
-    //if (!driverResponse.IsSuccessStatusCode)
-    //    return Results.BadRequest();
-    //var endTime = DateTime.Now;
-    //var patchRequest = new HttpRequestMessage(HttpMethod.Put, $"https://flpjmceqykalfwktysgi.supabase.co/rest/v1/Trip?");
-    //patchRequest.Headers.Add("apikey", "");
-    //patchRequest.Headers.Add("Authorization", "Bearer SU");
+    //set headers for database api request
+    updateRequest.Headers.Add("apikey", supabase_api_key);                   //these supabase_api_keys will have to be switched to the
+    updateRequest.Headers.Add("Authorization", $"Bearer {supabase_api_key}");//user's authentication token in the future?? according to database team
+    updateRequest.Headers.Add("Prefer", "return=representation"); //return inserted row
 
-    ////return 202 ok
-    //var patchResponse = await client.SendAsync(patchRequest);
-    //if (!patchResponse.IsSuccessStatusCode)
-    //    return Results.BadRequest();
+    //send the request we just made to the server
+    var createTripResponse = await client.SendAsync(updateRequest);
+
+    //log response
+    Console.WriteLine("Received:");
+    var raw = await createTripResponse.Content.ReadAsStringAsync();
+    Console.WriteLine(raw);
+
+    if (!createTripResponse.IsSuccessStatusCode)
+    {
+        var errorJson = await createTripResponse.Content.ReadAsStringAsync();
+        return Results.BadRequest(errorJson);
+    }
+
+    //put the json into a record
+    var createRecordResult = await createTripResponse.Content
+    .ReadFromJsonAsync<TripRecord[]>();
+
+
+    //get the first row (should only return 1 row anyways)
+    //use this wherever you need to access the trip record
+    var newTripRecord = createRecordResult?[0];
+    ///////////////////////////////////////////////////////////update driver
+
+    var current_location = new
+    {
+        latitude = newTripRecord.start_latitude,
+        longitude = newTripRecord.start_longitude,
+        address = newTripRecord.end_location
+    };
+
+
+    var driverRequest = new
+    {
+        tripId = newTripRecord.id,
+        driverId = newTripRecord.driver_id,
+        current_location = current_location
+    };
+
+    var driverResponse = await client.PostAsJsonAsync(driverModule + "/DriveComplete", driverRequest);
+
+
     ////send trip id to payment 
     var paymentRequest = new
     {
@@ -437,7 +454,11 @@ app.MapPost("/finish_ride", async (finishRide request, IHttpClientFactory httpCl
     };
     var paymentResponse = await client.PostAsJsonAsync("https://payment.gooberapp.org/api/payout", paymentRequest);
     if (!paymentResponse.IsSuccessStatusCode)
-        return Results.BadRequest();
+    {
+        //return error message to user
+        return Results.BadRequest(paymentResponse.Content.ReadAsStringAsync());
+    }
+
     return Results.Accepted();
 })
 .WithName("finishRide")
