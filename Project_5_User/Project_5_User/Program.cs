@@ -20,6 +20,8 @@ const string supabase_api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOi
 const string database = "https://flpjmceqykalfwktysgi.supabase.co/rest/v1/Trip";
 const string navigation = "https://coordinates.gooberapp.org";
 const string driverModule = "http://10.172.55.21:7500/api/DriverManager";
+const string paymentModule = " https://payment.gooberapp.org";
+
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
