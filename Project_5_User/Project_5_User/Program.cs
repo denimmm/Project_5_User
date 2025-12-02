@@ -331,38 +331,11 @@ app.MapGet("/driver_location", async (HttpContext context, int userID) =>
 ////output: 202 accepted
 app.MapPost("/finish_ride", async (finishRide request, IHttpClientFactory httpClientFactory, HttpContext context) =>
 {
-    ////authenticate
-    ////verify the user's authentication token
-    //var authHeader = context.Request.Headers["Authorization"].ToString();
-    //var client = httpClientFactory.CreateClient();
-    ////verifyAuth(authHeader);
-
-    ////make sure rating is between 1 - 5
-    //if (request.rating < 1 || request.rating > 5)
-    //    return Results.BadRequest(new { error = "rating must be between 1 and 5" });
-
-    //var finish_ride_payload = new
-    //{
-    //    rideId = request.rideID,
-    //    driverId = 123,
-    //    current_location = new 
-    //    { 
-    //    latitude = 60.123,
-    //    longtitude = -70.123,
-    //    address = "108 University Ave E, Waterloo"
-    //    }
-    //};
-    ////update table for end time and driver rating (likely sending rating to the driver module)
-    //var driverResponse = await client.PostAsJsonAsync("https://localhost:7126/api/DriverManager/DriverComplete", finish_ride_payload);
-
-    ////return 202 ok
-    //return Results.Accepted();
-    //authenticate
-    //verify the user's authentication token
+    
     var authHeader = context.Request.Headers["Authorization"].ToString();
 
-    if (!verifyAuth(authHeader, httpClientFactory))
-        return Results.BadRequest();
+    //if (!verifyAuth(authHeader, httpClientFactory))
+    //    return Results.BadRequest();
 
     //make sure rating is between 1 - 5
     if (request.rating < 1 || request.rating > 5)
@@ -371,37 +344,55 @@ app.MapPost("/finish_ride", async (finishRide request, IHttpClientFactory httpCl
 
     //update table for end time and driver rating (likely sending rating to the driver module)
     var client = httpClientFactory.CreateClient();
-    var httpRequest = new HttpRequestMessage(HttpMethod.Get, $"https://flpjmceqykalfwktysgi.supabase.co/rest/v1/Trip?select=driverId from triptable where trip");
-    httpRequest.Headers.Add("apikey", "");
-    httpRequest.Headers.Add("Authorization", "Bearer SU");
+    var httpRequest = new HttpRequestMessage(HttpMethod.Get, $"https://flpjmceqykalfwktysgi.supabase.co/rest/v1/Trip?select=driver_id&id=eq.{request.rideID}");
+    httpRequest.Headers.Add("apikey", supabase_api_key);
+    httpRequest.Headers.Add("Authorization", supabase_api_key);
+
+
+
+    //return the result to swagger.
+    //return the result to swagger.
 
     var response = await client.SendAsync(httpRequest);
     if (!response.IsSuccessStatusCode)
 
         return Results.BadRequest();
+    //var createRecordResult = await response.Content
+    //    .ReadFromJsonAsync<TripRecord[]>();
 
-    //if success 
-    var driverId = new
+    //    //get the first row (should only return 1 row anyways)
+    //    //use this wherever you need to access the trip record
+    //    var newTripRecord = createRecordResult?[0];
+    //    ////if success 
+    var driverList = await response.Content.ReadFromJsonAsync<DriverResponse[]>();
+    var driverId = driverList?[0];
+    //return Results.Ok(driverId);
+    var driverRequest = new
     {
-        driverId = 1234,
-        tripId = request.rideID
+        driverId = driverId?.driver_id,
+
     };
 
-    var driverResponse = await client.PostAsJsonAsync("https://api.client.com/api/DriverManager/DriverComplete", driverId);
+    //var driverResponse = await client.PostAsJsonAsync("https://api.client.com/api/DriverManager/DriverComplete", driverRequest);
 
-    if (!driverResponse.IsSuccessStatusCode)
-        return Results.BadRequest();
-    var endTime = DateTime.Now;
-    var patchRequest = new HttpRequestMessage(HttpMethod.Get, $"https://flpjmceqykalfwktysgi.supabase.co/rest/v1/Trip?");
-    patchRequest.Headers.Add("apikey", "");
-    patchRequest.Headers.Add("Authorization", "Bearer SU");
+    //if (!driverResponse.IsSuccessStatusCode)
+    //    return Results.BadRequest();
+    //var endTime = DateTime.Now;
+    //var patchRequest = new HttpRequestMessage(HttpMethod.Put, $"https://flpjmceqykalfwktysgi.supabase.co/rest/v1/Trip?");
+    //patchRequest.Headers.Add("apikey", "");
+    //patchRequest.Headers.Add("Authorization", "Bearer SU");
 
-    //return 202 ok
-    var patchResponse = await client.SendAsync(patchRequest);
-    if (!patchResponse.IsSuccessStatusCode)
-        return Results.BadRequest();
-    //send trip id to payment 
-    var paymentResponse = await client.PostAsJsonAsync("http://api/payouts/r/n/r/nUser/Client -> Payment", new { tripId = request.rideID });
+    ////return 202 ok
+    //var patchResponse = await client.SendAsync(patchRequest);
+    //if (!patchResponse.IsSuccessStatusCode)
+    //    return Results.BadRequest();
+    ////send trip id to payment 
+    var paymentRequest = new
+    {
+        tripID = request.rideID
+
+    };
+    var paymentResponse = await client.PostAsJsonAsync("https://payment.gooberapp.org/api/payout", paymentRequest);
     if (!paymentResponse.IsSuccessStatusCode)
         return Results.BadRequest();
     return Results.Accepted();
@@ -453,7 +444,10 @@ public record DirectionPoint(
 public record RequestDriverRecord(
     int tripId    
 );
+public record DriverResponse(
 
+int driver_id
+);
 ////////////////
 
 public record RideRequest(
