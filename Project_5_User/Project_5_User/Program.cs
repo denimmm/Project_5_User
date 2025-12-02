@@ -20,8 +20,7 @@ const string supabase_api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOi
 const string database = "https://flpjmceqykalfwktysgi.supabase.co/rest/v1/Trip";
 const string navigation = "https://coordinates.gooberapp.org";
 const string driverModule = "http://10.172.55.21:7500/api/DriverManager";
-const string paymentModule = " https://payment.gooberapp.org";
-
+const string paymentModule = "https://payment.gooberapp.org";
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -81,7 +80,7 @@ bool verifyAuth(String? auth_header, IHttpClientFactory httpClientFactory)
 
 
 
-//Maksym
+
 //allows the user to request a ride and receive an offer. offer must be confirmed
 // /api/create_new_trip
 ////input: POST { "userID": "u12345", "pickup_address": "Conestoga College, Waterloo, ON", "destination_address": "Conestoga Mall, Waterloo, ON", "car_type" : "XL", "pet_friendly" : "true"}
@@ -241,44 +240,88 @@ app.MapPost("/create_new_trip", async (
     .WithOpenApi();
 
 
-//MEEHAK
+
 //confirms the ride for the user, activates payment, and dispatches a driver
 // /api/confirm_trip
 ////input: { "userID" : "u12345", "rideID" : "01242", "confirm_ride" : "true" }
 ////output: { "rideID" : "12345", "driver_name" : "John", "ETA" : "17:40", "payment_successful" : "true" }
 
-app.MapPost("/confirm_trip", async (HttpContext context, string tripID) =>
+app.MapPost("/confirm_trip", async (HttpContext context, string tripID, bool confirmed, [FromServices] IHttpClientFactory httpClientFactory) =>
 {
     //authenticate
     var authHeader = context.Request.Headers["Authorization"].ToString();
     //verifyAuth(authHeader);
 
+    var client = httpClientFactory.CreateClient();
+
+    //////////////////////////////////////////////////////////////////////////update supabase
+    //choose whether to mark the trip as in progress or completed
+    var updateTripPayload = new Dictionary<string, object>
+    {
+        { "status", confirmed ? "In Progress" : "Completed" }
+    };
+
+    var updateRequest = new HttpRequestMessage(HttpMethod.Patch, $"{database}?id=eq.{tripID}")
+    {
+        Content = JsonContent.Create(updateTripPayload)
+    };
+
+    // Add Supabase headers
+    updateRequest.Headers.Add("apikey", supabase_api_key);
+    updateRequest.Headers.Add("Authorization", $"Bearer {supabase_api_key}");
+    updateRequest.Headers.Add("Prefer", "return=representation"); //returns updated row
+
+    //send request
+    var updateResponse = await client.SendAsync(updateRequest);
+
+    //error handling
+    if (!updateResponse.IsSuccessStatusCode)
+    {
+        var errorJson = await updateResponse.Content.ReadAsStringAsync();
+        return Results.BadRequest(errorJson);
+    }
+
+    //deserialize updated trip
+    var updatedTripRecord = await updateResponse.Content.ReadFromJsonAsync<TripRecord[]>();
+    var updatedTrip = updatedTripRecord?[0]; //should be only one
+
+    //tell user trip is cancelled succeessfully
+    if (!confirmed)
+    {
+        return Results.Ok("Trip cancelled successfully.");
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////payment
+
     //Request body for Payments service
     var paymentRequest = new
     {
-        tripID = tripID
+        tripID = tripID,
+        userID = updatedTrip.rider_id,
+        driverID = updatedTrip.driver_id,
+        cost = updatedTrip.fare
     };
-    using var httpClient = new HttpClient();
-    //Send tripID to the Payments service 
-    var paymentResponse = await httpClient.PostAsJsonAsync("https://localhost:7126/api/payments", paymentRequest);
+
+    //make payment request
+    var paymentResponse = await client.PostAsJsonAsync(paymentModule + "/api/payments", paymentRequest);
+
     //check payments response status
     if (paymentResponse.IsSuccessStatusCode)
     {
         //forward the success code back to UX/UI team
-        return Results.Ok(new
-        {
-            tripID = tripID,
-            status = "Payment confirmed"
-        });
+        return Results.Accepted("Trip confirmed, payment successful.");
     }
-    //if payment gets failed 
-    return Results.Problem("An error occured while processing payment.", statusCode: (int)paymentResponse.StatusCode);
+
+    string err = await paymentResponse.Content.ReadAsStringAsync();
+
+    //if payment failed 
+    return Results.Problem("An error occured while processing payment: " + err);
 })
 .WithName("confirm_trip")
 .WithOpenApi();
 
 
-//Denim
+
 //returns the location of the user's driver
 // /api/driverLocation
 ////input: driverlocation?userID=12345&rideID=12312421
@@ -464,41 +507,9 @@ public record finishRide(
     bool rideCompleted,
     int rating
 );
-public record authResponse(
-  int ride_id,
-  string status
-);
-public record navEstimateResponse(
-    double distanceKM,
-    double fare,
-    double durationMinutes,
-    string polyline
-);
-public record driverResponse(
-    int driver_id
-);
-//verify user 
-public record UserInfo
-{
-    public string account_id;
-    public string username;
-    public string email;
-    public string role;
-}
 
-public record Location
-{
-    public double latitude;
-    public double longitude;
-}
 
-public record DriverInfo
-{
-    public int driver_id;
-    public string driver_name;
-    public string license_plate;
-    public string car_model;
-}
+
 
 //responsible for verifyin user authentication 
 public class AuthService
