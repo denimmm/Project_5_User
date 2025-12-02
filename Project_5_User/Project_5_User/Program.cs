@@ -8,13 +8,20 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection.Metadata.Ecma335;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using static System.Net.WebRequestMethods;
 
 var builder = WebApplication.CreateBuilder(args);
 
 const string supabase_api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZscGptY2VxeWthbGZ3a3R5c2dpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkxMDEwMTMsImV4cCI6MjA3NDY3NzAxM30.X1rlQZeSvbrO0KE1LZdsrLvNS8YlpTborYoXG4JGsWI";
 
+
+//external endpoints
 const string database = "https://flpjmceqykalfwktysgi.supabase.co/rest/v1/Trip";
+const string navigation = "https://coordinates.gooberapp.org";
+const string driverModule = "http://10.172.55.21:7500/api/DriverManager";
+const string paymentModule = " https://payment.gooberapp.org";
+
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -105,145 +112,133 @@ app.MapPost("/create_new_trip", async (
     var client = httpClientFactory.CreateClient();
 
 
-    //get estimate from navigation module
-    var navInput = new
-    {
-        pickupAddress = request.pickup_address,
-        destinationAddress = request.destination_address
-    };
+        //get estimate from navigation module
+        var navInput = new
+        {
+            pickupAddress = request.pickup_address,
+            destinationAddress = request.destination_address
+        };
 
-    var tripInsertQuery = new
-    {
-        rider_id = request.userID,
-        start_location = request.pickup_address,
-        end_location = request.destination_address,
-        //status -- commented for now until i know what goes here
-        time_started = DateTime.UtcNow.ToString("O"),
-        petFriendly = request.pet_friendly,
-        carType = request.car_type,
-    };
 
-    //create a request for the database, give it the json in the tripInsetQuery. note: does not send the request yet
-    var tripCreateRequest = new HttpRequestMessage(HttpMethod.Post, database)
-    {
-        Content = JsonContent.Create(tripInsertQuery)
-    };
-
-    //set headers for database api request
-    tripCreateRequest.Headers.Add("apikey", supabase_api_key);                   //these supabase_api_keys will have to be switched to the
-    tripCreateRequest.Headers.Add("Authorization", $"Bearer {supabase_api_key}");//user's authentication token in the future?? according to database team
-    tripCreateRequest.Headers.Add("Prefer", "return=representation"); //return inserted row
-
-    //send the request we just made to the server
-    var createTripResponse = await client.SendAsync(tripCreateRequest);
-
-    //put the json into a record
-    var createRecordResult = await createTripResponse.Content
-    .ReadFromJsonAsync<TripRecord[]>();
-
-    //get the first row (should only return 1 row anyways)
-    //use this wherever you need to access the trip record
-    var newTripRecord = createRecordResult?[0];
-
-    //return the result to swagger.
-
-    return Results.Ok(newTripRecord);/////////////////////////  TEMPORARILY RETURNS EARLY SO WE CAN SEE THE DATABASE'S RESPONSE
+        //////////////////////////////////////////////////////////////////////////////////navigation estimate
 
 
 
-    var navEstimateResponse = await client.PostAsJsonAsync("https://localhost:7126/api/estimate", navInput);
-
-    //populate nav estimate response object
-    var navEstimateContent = await navEstimateResponse.Content.ReadFromJsonAsync<navEstimateResponse>();
-
-    //Get geocodes of starting and ending location
-    string starting_location_geocode_link = "https://localhost:7126/api/geocode?query=" + Uri.EscapeDataString(request.pickup_address);
-
-    var pickup_location_geocode = await client.GetAsync(starting_location_geocode_link);
-
-    var pickup_location_geocode_content = await pickup_location_geocode.Content.ReadFromJsonAsync<Location>();
-
-    //Get geocode of ending location
-    string destination_location_geocode_link = "https://localhost:7126/api/geocode?query=" + Uri.EscapeDataString(request.destination_address);
-
-    var destination_location_geocode = await client.GetAsync(destination_location_geocode_link);
-
-    var destination_location_geocode_content = await destination_location_geocode.Content.ReadFromJsonAsync<Location>();
-
-    /*////////////////////////////////this block can be deleted if you need nothing from it, ride is created before we talk to navigation.
-    //get ride id from auth /create_new_trip
-    var authRequestJson = new
-    {
-        rider_id = request.userID,
-
-        start_lattitude = pickup_location_geocode_content.latitude,
-        start_longitude = pickup_location_geocode_content.longitude,
-        start_location = request.pickup_address,
-          
-        
-       end_latitude = destination_location_geocode_content.latitude,
-       end_longitude = destination_location_geocode_content.longitude,
-       end_location = request.destination_address,
-        
-       carType = request.car_type,
-       petFriendly = request.pet_friendly,
-        
-       //distance_km =navEstimateContent.distanceKM,
-       fare = navEstimateContent.fare,
-       //duration_min = navEstimateContent.durationMinutes
-       time_started = DateTime.UtcNow.ToString("O")
-
-    };
+        var navEstimateResponse = await client.PostAsJsonAsync(navigation + "/api/estimate", navInput);
 
 
+        if (!navEstimateResponse.IsSuccessStatusCode)
+        {
+            var errorJson = await navEstimateResponse.Content.ReadAsStringAsync();
+            return Results.BadRequest(errorJson);
+        }
 
-    //call auth module to create new trip
-    var authResponse = await client.PostAsJsonAsync("https://localhost:7126/api/authentication/create_new_trip", authRequestJson);
+        //log the response
+        var json = await navEstimateResponse.Content.ReadAsStringAsync();
+        //Console.WriteLine(json);
 
-    //Populate auth content object
-    var authContent = await authResponse.Content.ReadFromJsonAsync<authResponse>();
-    
-    */
-
-    var DriverRequestJson = new
-    {
-        ride_id = newTripRecord.id //this is correct as of 2025-11-25
-    };
-
-    //call driver module to get assigned driver
-    var driverResponse = await client.PostAsJsonAsync("https://localhost:7126/api/driver/assign_driver", DriverRequestJson);
-
-    //get driver content
-    var driverContent = await driverResponse.Content.ReadFromJsonAsync<driverResponse>();
+        var triproute = JsonSerializer.Deserialize<TripRoute>(json);
 
 
-    //Get driver data from the database based on returned driver ID
-    var driverDataRequest = new
-    {
-        driver_id = driverContent.driver_id
-    };
+        Console.WriteLine("FINISHED");
 
-    var driverDataResponse = await client.PostAsJsonAsync("https://localhost:7126/api/authentication/get_driver_info", driverDataRequest);
+        ////////////////////////////////////////////////////////////////////////////////////create trip record in supabase
+        var tripInsertQuery = new
+        {
+            rider_id = request.userID,
+            start_location = request.pickup_address,
+            end_location = request.destination_address,
+            status = "Booked",
+            time_started = DateTime.UtcNow.ToString("O"),
+            petFriendly = request.pet_friendly,
+            carType = request.car_type,
+            fare = triproute.fare,
+            //distanceKm = triproute.distanceKm,
+            start_longitude = triproute.pickupLon,
+            start_latitude = triproute.pickupLat,
+            //longitude = triproute.destinationLon,
+            //latitude = triproute.destinationLat
+        };
 
-    var driverDataContent = await driverDataResponse.Content.ReadFromJsonAsync<DriverInfo>();
+        //create a request for the database, give it the json in the tripInsetQuery. note: does not send the request yet
+        var tripCreateRequest = new HttpRequestMessage(HttpMethod.Post, database)
+        {
+            Content = JsonContent.Create(tripInsertQuery)
+        };
 
-    //return ride offer for confirmation
-    var rideOffer = new
-    {
-        rideID = newTripRecord.id,
-        distanceKm = navEstimateContent.distanceKM,
-        fare = navEstimateContent.fare,
-        durationMinutes = navEstimateContent.durationMinutes,
-        driver_name = "David James", //driverDataContent.driver_name,
-        license_plate = "LICE NSEPLATE",//driverDataContent.license_plate,
-        car_model = "Honda CRV" //driverdataContent.car_model,
+        //set headers for database api request
+        tripCreateRequest.Headers.Add("apikey", supabase_api_key);                   //these supabase_api_keys will have to be switched to the
+        tripCreateRequest.Headers.Add("Authorization", $"Bearer {supabase_api_key}");//user's authentication token in the future?? according to database team
+        tripCreateRequest.Headers.Add("Prefer", "return=representation"); //return inserted row
 
-    };
+        //send the request we just made to the server
+        var createTripResponse = await client.SendAsync(tripCreateRequest);
 
-    return Results.Json(rideOffer);
-})
-.WithName("create_new_trip")
-.WithOpenApi();
+        //log response
+        Console.WriteLine("Received:");
+        var raw = await createTripResponse.Content.ReadAsStringAsync();
+        Console.WriteLine(raw);
+
+        if (!createTripResponse.IsSuccessStatusCode)
+        {
+            var errorJson = await createTripResponse.Content.ReadAsStringAsync();
+            return Results.BadRequest(errorJson);
+        }
+
+        //put the json into a record
+        var createRecordResult = await createTripResponse.Content
+        .ReadFromJsonAsync<TripRecord[]>();
+
+
+        //get the first row (should only return 1 row anyways)
+        //use this wherever you need to access the trip record
+        var newTripRecord = createRecordResult?[0];
+
+        //return Results.Accepted();
+    //////////////////////////////////////////////////////////////////////////driver request
+
+
+
+
+        var DriverRequestJson = new
+        {
+            tripId = newTripRecord.id //this is correct as of 2025-11-25
+        };
+
+        Console.WriteLine("DriverRequestJson: " + JsonSerializer.Serialize(DriverRequestJson));
+
+        //call driver module to get assigned driver
+        var driverResponse = await client.PostAsJsonAsync(driverModule + "/RequestDriver", DriverRequestJson);
+
+        //give error to user if driver request fails
+        if( !driverResponse.IsSuccessStatusCode)
+        {
+            var errorContent = await driverResponse.Content.ReadAsStringAsync();
+            return Results.BadRequest(errorContent);
+
+        }
+
+        var finalRecord = await driverResponse.Content.ReadFromJsonAsync<TripRecord>();
+
+        ///////////////////////////////////////////////////////////////////////////return to user
+
+        //return ride offer for confirmation
+        var rideOffer = new
+        {
+            rideID = newTripRecord.id,
+            distanceKm = triproute.distanceKm,
+            fare = triproute.fare,
+            durationMinutes = triproute.durationMinutes,
+            driver_name = "David James", //driverDataContent.driver_name,
+            license_plate = "B2YV 604",//driverDataContent.license_plate,
+            car_model = "Honda CRV" //driverdataContent.car_model,
+
+        };
+
+        return Results.Json(rideOffer);
+    })
+    .WithName("create_new_trip")
+    .WithOpenApi();
 
 
 //MEEHAK
@@ -420,23 +415,46 @@ app.Run();
 
 //used to access json when requesting the record in the database for the trip
 public record TripRecord(
-
     int id,
-    int driver_id,
-    int rider_id,
+    int? driver_id,
+    int? rider_id,
     string start_location,
     string end_location,
-    string start_latitude,
-    string start_longitude,
-    string time_started,
-    string time_completd,
-    string status,
-    bool petFreindly,
+    string? time_started,
+    string? time_completed,
+    string? status,
+    bool petFriendly,
     string carType,
-    double latitude,
-    double longitude,
-    double fare
+    double? fare,
+    double? start_latitude,
+    double? start_longitude
 );
+
+public record TripRoute(
+    string pickupAddress,
+    string destinationAddress,
+    double pickupLat,
+    double pickupLon,
+    double destinationLat,
+    double destinationLon,
+    double distanceKm,
+    double durationMinutes,
+    double fare,
+    string polyline,
+    List<DirectionPoint> directions
+);
+
+public record DirectionPoint(
+    double lat,
+    double lon
+);
+
+
+public record RequestDriverRecord(
+    int tripId    
+);
+
+////////////////
 
 public record RideRequest(
     int userID,
